@@ -252,6 +252,9 @@ function islandora_ocr_derive_ocr(AbstractObject $object, $force = FALSE) {
         'severity' => WATCHDOG_ERROR,
       );
     }
+    // FLVC - clearing out tmp directory
+    $files = array_filter(array($file, $ocr_file));
+    array_map('file_unmanaged_delete', $files);
 
     return $to_return;
   }
@@ -301,6 +304,9 @@ function islandora_ocr_derive_hocr(AbstractObject $object, $force = FALSE) {
         'severity' => WATCHDOG_ERROR,
       );
     }
+    // FLVC - clearing out tmp directory
+    $files = array_filter(array($file, $ocr_file));
+    array_map('file_unmanaged_delete', $files);
 
     return $to_return;
   }
