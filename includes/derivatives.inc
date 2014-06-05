@@ -212,6 +212,8 @@ function islandora_ocr_get_converted_source(AbstractDatastream $datastream) {
  * Derive the OCR stream from OBJ.
  */
 function islandora_ocr_derive_ocr(AbstractObject $object, $force = FALSE) {
+  $language_array = $object->relationships->get(ISLANDORA_RELS_EXT_URI, 'hasLanguage');
+  $language = isset($language_array[0]['object']['value']) ? $language_array[0]['object']['value'] : 'eng';
   // Logic for OCR generation from islandora_book_batch.
   $generate_ocr = 'TRUE';
   $batch_ocr = $object->relationships->get(ISLANDORA_RELS_EXT_URI, 'generate_ocr');
@@ -227,7 +229,8 @@ function islandora_ocr_derive_ocr(AbstractObject $object, $force = FALSE) {
 
     $datastream = $object['OBJ'];
     $file = islandora_ocr_get_converted_source($datastream);
-    $ocr_file = islandora_ocr_create_ocr($file, array('language' => 'eng'));
+    //$ocr_file = islandora_ocr_create_ocr($file, array('language' => 'eng'));
+    $ocr_file = islandora_ocr_create_ocr($file, array('language' => $language));
     if ($ocr_file && islandora_ocr_update_datastream($object, $ocr_file, 'OCR')) {
       $to_return['success'] = TRUE;
       $to_return['messages'][] = array(
@@ -264,6 +267,8 @@ function islandora_ocr_derive_ocr(AbstractObject $object, $force = FALSE) {
  * Derive the HOCR stream from OBJ.
  */
 function islandora_ocr_derive_hocr(AbstractObject $object, $force = FALSE) {
+  $language_array = $object->relationships->get(ISLANDORA_RELS_EXT_URI, 'hasLanguage');
+  $language = isset($language_array[0]['object']['value']) ? $language_array[0]['object']['value'] : 'eng';
   // Logic for OCR generation from islandora_book_batch.
   $generate_ocr = 'TRUE';
   $batch_ocr = $object->relationships->get(ISLANDORA_RELS_EXT_URI, 'generate_ocr');
@@ -279,7 +284,8 @@ function islandora_ocr_derive_hocr(AbstractObject $object, $force = FALSE) {
 
     $datastream = $object['OBJ'];
     $file = islandora_ocr_get_converted_source($datastream);
-    $ocr_file = islandora_ocr_create_hocr($file, array('language' => 'eng'));
+    //$ocr_file = islandora_ocr_create_hocr($file, array('language' => 'eng'));
+    $ocr_file = islandora_ocr_create_hocr($file, array('language' => $language));
     if ($ocr_file && islandora_ocr_update_datastream($object, $ocr_file, 'HOCR')) {
       $to_return['success'] = TRUE;
       $to_return['messages'][] = array(
