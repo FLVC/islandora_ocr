@@ -229,7 +229,6 @@ function islandora_ocr_derive_ocr(AbstractObject $object, $force = FALSE) {
 
     $datastream = $object['OBJ'];
     $file = islandora_ocr_get_converted_source($datastream);
-    //$ocr_file = islandora_ocr_create_ocr($file, array('language' => 'eng'));
     $ocr_file = islandora_ocr_create_ocr($file, array('language' => $language));
     if ($ocr_file && islandora_ocr_update_datastream($object, $ocr_file, 'OCR')) {
       $to_return['success'] = TRUE;
@@ -256,9 +255,9 @@ function islandora_ocr_derive_ocr(AbstractObject $object, $force = FALSE) {
       );
     }
     // FLVC - clearing out tmp directory
-    $files = array_filter(array($file, $ocr_file));
-    array_map('file_unmanaged_delete', $files);
-
+    //$files = array_filter(array($file, $ocr_file));
+    //array_map('file_unmanaged_delete', $files);
+    file_unmanaged_delete($file);
     return $to_return;
   }
 }
@@ -284,7 +283,6 @@ function islandora_ocr_derive_hocr(AbstractObject $object, $force = FALSE) {
 
     $datastream = $object['OBJ'];
     $file = islandora_ocr_get_converted_source($datastream);
-    //$ocr_file = islandora_ocr_create_hocr($file, array('language' => 'eng'));
     $ocr_file = islandora_ocr_create_hocr($file, array('language' => $language));
     if ($ocr_file && islandora_ocr_update_datastream($object, $ocr_file, 'HOCR')) {
       $to_return['success'] = TRUE;
@@ -311,9 +309,10 @@ function islandora_ocr_derive_hocr(AbstractObject $object, $force = FALSE) {
       );
     }
     // FLVC - clearing out tmp directory
-    $files = array_filter(array($file, $ocr_file));
-    array_map('file_unmanaged_delete', $files);
-
+    //$files = array_filter(array($file, $ocr_file));
+    //array_map('file_unmanaged_delete', $files);
+    // Clean up.
+    file_unmanaged_delete($file);
     return $to_return;
   }
 }
@@ -416,5 +415,19 @@ function islandora_ocr_update_datastream(AbstractObject $object, $file, $dsid, $
   else {
     $ds->mimetype = $mime_detector->getMimetype($file);
   }
+  file_unmanaged_delete($file);
   return TRUE;
+}
+
+/**
+ * Remove the generate_ocr field if present in the RELS-EXT.
+ */
+function islandora_ocr_remove_generate_ocr_rels_ext_statement(AbstractObject $object, $force = FALSE) {
+  if ($object->relationships->get(ISLANDORA_RELS_EXT_URI, 'generate_ocr', '', RELS_TYPE_STRING)) {
+    $object->relationships->remove(ISLANDORA_RELS_EXT_URI, 'generate_ocr', '', RELS_TYPE_STRING);
+  }
+  return array(
+    'success' => FALSE,
+    'messages' => array(),
+  );
 }
