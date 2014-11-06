@@ -1,4 +1,5 @@
 <?php
+
 /**
  * @file
  * File to create derivatives with teseract
@@ -20,7 +21,8 @@ function islandora_ocr_create_ocr($image_file, array $options) {
   $image_file = drupal_realpath($image_file);
   $out_file = "$image_file.txt";
   $executable = variable_get('islandora_ocr_tesseract', '/usr/bin/tesseract');
-  $output = array(); $ret = 0;
+  $output = array();
+  $ret = 0;
   $command = "{$executable} {$image_file} {$image_file} -l {$options['language']} 2>&1";
   exec($command, $output, $ret);
   if ($ret != '0' || !file_exists($out_file)) {
@@ -52,10 +54,17 @@ function islandora_ocr_create_hocr($image_file, array $options) {
   $image_file = drupal_realpath($image_file);
   $out_file = "$image_file.html";
   $executable = variable_get('islandora_ocr_tesseract', '/usr/bin/tesseract');
-  $output = array(); $ret = 0;
+  $output = array();
+  $ret = 0;
   $command = "{$executable} {$image_file} {$image_file} -l {$options['language']} hocr 2>&1";
   exec($command, $output, $ret);
-  if ($ret != '0' || !file_exists($out_file)) {
+  $version = islandora_ocr_get_tesseract_version($executable);
+  if (strcmp($version, "3.02.02") > 0) {
+    $base_name = drupal_basename("$image_file.hocr");
+    // Add .html extension so we get correct mimetype.
+    $out_file = file_unmanaged_move("$image_file.hocr", "temporary://$base_name.html", FILE_EXISTS_REPLACE);
+  }
+  if ($ret != '0' || empty($out_file) || !file_exists($out_file)) {
     $message = 'Tesseract failed to create an HOCR datastream.<br/>Error: @ret<br/>Command: @command<br/>Output: !output';
     $variables = array(
       '@ret' => $ret,
@@ -214,6 +223,19 @@ function islandora_ocr_get_converted_source(AbstractDatastream $datastream) {
 function islandora_ocr_derive_ocr(AbstractObject $object, $force = FALSE) {
   $language_array = $object->relationships->get(ISLANDORA_RELS_EXT_URI, 'hasLanguage');
   $language = isset($language_array[0]['object']['value']) ? $language_array[0]['object']['value'] : 'eng';
+  if ($language == 'no_ocr') {
+    $to_return['success'] = TRUE;
+    $to_return['messages'][] = array(
+      'message' => t('Skipped adding @dsid to @id.'),
+      'message_sub' => array(
+        '@dsid' => 'OCR',
+        '@id' => $object->id,
+      ),
+      'type' => 'dsm',
+      'severity' => 'status',
+    );
+    return $to_return;
+  }
   // Logic for OCR generation from islandora_book_batch.
   $generate_ocr = 'TRUE';
   $batch_ocr = $object->relationships->get(ISLANDORA_RELS_EXT_URI, 'generate_ocr');
@@ -268,6 +290,19 @@ function islandora_ocr_derive_ocr(AbstractObject $object, $force = FALSE) {
 function islandora_ocr_derive_hocr(AbstractObject $object, $force = FALSE) {
   $language_array = $object->relationships->get(ISLANDORA_RELS_EXT_URI, 'hasLanguage');
   $language = isset($language_array[0]['object']['value']) ? $language_array[0]['object']['value'] : 'eng';
+  if ($language == 'no_ocr') {
+    $to_return['success'] = TRUE;
+    $to_return['messages'][] = array(
+      'message' => t('Skipped adding @dsid to @id.'),
+      'message_sub' => array(
+        '@dsid' => 'HOCR',
+        '@id' => $object->id,
+      ),
+      'type' => 'dsm',
+      'severity' => 'status',
+    );
+    return $to_return;
+  }
   // Logic for OCR generation from islandora_book_batch.
   $generate_ocr = 'TRUE';
   $batch_ocr = $object->relationships->get(ISLANDORA_RELS_EXT_URI, 'generate_ocr');
@@ -313,6 +348,7 @@ function islandora_ocr_derive_hocr(AbstractObject $object, $force = FALSE) {
     //array_map('file_unmanaged_delete', $files);
     // Clean up.
     file_unmanaged_delete($file);
+    islandora_ocr_remove_generate_ocr_rels_ext_statement($object);
     return $to_return;
   }
 }
@@ -422,12 +458,15 @@ function islandora_ocr_update_datastream(AbstractObject $object, $file, $dsid, $
 /**
  * Remove the generate_ocr field if present in the RELS-EXT.
  */
-function islandora_ocr_remove_generate_ocr_rels_ext_statement(AbstractObject $object, $force = FALSE) {
-  if ($object->relationships->get(ISLANDORA_RELS_EXT_URI, 'generate_ocr', '', RELS_TYPE_STRING)) {
-    $object->relationships->remove(ISLANDORA_RELS_EXT_URI, 'generate_ocr', '', RELS_TYPE_STRING);
+function islandora_ocr_remove_generate_ocr_rels_ext_statement(AbstractObject $object) {
+  if ($object->relationships->get(ISLANDORA_RELS_EXT_URI, 'generate_ocr', '', RELS_TYPE_PLAIN_LITERAL)) {
+    $object->relationships->remove(ISLANDORA_RELS_EXT_URI, 'generate_ocr', '', RELS_TYPE_PLAIN_LITERAL);
   }
-  return array(
-    'success' => FALSE,
-    'messages' => array(),
-  );
+}
+
+/**
+ * Set the generate_ocr relation in the RELS-EXT.
+ */
+function islandora_ocr_set_generate_ocr_rels_ext_statement(AbstractObject $object) {
+  $object->relationships->add(ISLANDORA_RELS_EXT_URI, 'generate_ocr', 'TRUE', RELS_TYPE_PLAIN_LITERAL);
 }
