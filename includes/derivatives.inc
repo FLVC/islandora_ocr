@@ -26,13 +26,12 @@ function islandora_ocr_create_ocr($image_file, array $options) {
   $command = "{$executable} {$image_file} {$image_file} -l {$options['language']} 2>&1";
   exec($command, $output, $ret);
   if ($ret != '0' || !file_exists($out_file)) {
-    $message = 'Tesseract failed to create OCR datastreams.<br/>Error: @ret<br/>Command: @command<br/>Output: !output';
     $variables = array(
       '@ret' => $ret,
       '@command' => $command,
       '!output' => implode('<br/>', $output),
     );
-    watchdog('islandora_ocr', $message, $variables, WATCHDOG_ERROR);
+    watchdog('islandora_ocr', 'Tesseract failed to create OCR datastreams.<br/>Error: @ret<br/>Command: @command<br/>Output: !output', $variables, WATCHDOG_ERROR);
     return FALSE;
   }
   return $out_file;
@@ -65,25 +64,26 @@ function islandora_ocr_create_hocr($image_file, array $options) {
     $out_file = file_unmanaged_move("$image_file.hocr", "temporary://$base_name.html", FILE_EXISTS_REPLACE);
   }
   if ($ret != '0' || empty($out_file) || !file_exists($out_file)) {
-    $message = 'Tesseract failed to create an HOCR datastream.<br/>Error: @ret<br/>Command: @command<br/>Output: !output';
     $variables = array(
       '@ret' => $ret,
       '@command' => $command,
       '!output' => implode('<br/>', $output),
     );
-    watchdog('islandora_ocr', $message, $variables, WATCHDOG_ERROR);
+    watchdog('islandora_ocr', 'Tesseract failed to create an HOCR datastream.<br/>Error: @ret<br/>Command: @command<br/>Output: !output', $variables, WATCHDOG_ERROR);
     return FALSE;
   }
 
   if (!HOCR::isValid($out_file)) {
-    $message = 'Tesseract failed to create a valid HOCR datastream. Please ensure you are running a supported version of Tesseract (3.02.02 or later).';
-    $message .= '<br/>Error: @ret<br/>Command: @command<br/>Output: !output';
     $variables = array(
       '@ret' => $ret,
       '@command' => $command,
       '!output' => implode('<br/>', $output),
     );
-    watchdog('islandora_ocr', $message, $variables, WATCHDOG_ERROR);
+    watchdog('islandora_ocr',
+      'Tesseract failed to create a valid HOCR datastream. Please ensure you are running a supported version of Tesseract (3.02.02 or later).<br/>Error: @ret<br/>Command: @command<br/>Output: !output',
+      $variables,
+      WATCHDOG_ERROR
+    );
     return FALSE;
   }
 
@@ -110,7 +110,7 @@ function islandora_ocr_get_uploaded_file(AbstractDatastream $datastream) {
 }
 
 /**
- * Creates and adds the OCR, HOCR datastreams.
+ * Generates OCR and HOCR derivatives from a page and adds them as datastreams.
  *
  * @param AbstractDatastream $datastream
  *   The page datastream that the derivatives will be generated for.
@@ -118,9 +118,33 @@ function islandora_ocr_get_uploaded_file(AbstractDatastream $datastream) {
  *   The options for tesseract.
  *
  * @return bool
- *   TRUE on success, FALSE otherwise.
+ *   Returns TRUE on success and FALSE on failure.
  */
 function islandora_ocr_derive_datastreams(AbstractDatastream $datastream, array $options) {
+  $derivatives = islandora_ocr_generate_derivatives($datastream, $options);
+  $ret = $derivatives['OCR'];
+  $ret = $ret && islandora_ocr_update_datastream($datastream->parent, $derivatives['OCR'], 'OCR');
+  $ret = $ret && $derivatives['HOCR'];
+  $ret = $ret && islandora_ocr_update_datastream($datastream->parent, $derivatives['HOCR'], 'HOCR');
+
+  $files = array_filter(array($source_file, $ocr_file, $hocr_file));
+  array_map('file_unmanaged_delete', $files);
+  return $ret;
+}
+
+/**
+ * Generates OCR/HOCR derivatives and returns references to them.
+ *
+ * @param AbstractDatastream $datastream
+ *   The page datastream to generate derivatives for.
+ * @param array $options
+ *   Options for tesseract.
+ *
+ * @return array
+ *   An associative array containing 'OCR' and 'HOCR', paired with either the
+ *   path to that derivative, or FALSE on failure.
+ */
+function islandora_ocr_generate_derivatives(AbstractDatastream $datastream, array $options) {
   module_load_include('inc', 'islandora_ocr', 'includes/utilities');
   $options += array(
     'language' => 'eng',
@@ -135,6 +159,7 @@ function islandora_ocr_derive_datastreams(AbstractDatastream $datastream, array 
 
   $depth = intval(exec(escapeshellcmd("$identify -format \"%z\" $file")));
   $codec = strtolower(exec(escapeshellcmd("$identify -format \"%m\" $file")));
+  $alpha = exec(escapeshellcmd("$identify -format \"%A\" $file"));
 
   // XXX: Likely an incomplete list... Cursory search didn't turn up a full
   // list.
@@ -143,14 +168,14 @@ function islandora_ocr_derive_datastreams(AbstractDatastream $datastream, array 
     'tiff',
     'png',
   );
-
-  if ($depth > 8 || !in_array($codec, $supported_codecs)) {
+  if ($depth > 8 || !in_array($codec, $supported_codecs) || $alpha == 'True') {
     $c_dest = file_create_filename(drupal_basename($source_file) . ".tif", 'temporary://');
 
     $c_args = array(
       '-colorspace Gray',
       '-depth 8',
       '-compress None',
+      '-alpha Off',
     );
 
     $old_source = $source_file;
@@ -158,16 +183,10 @@ function islandora_ocr_derive_datastreams(AbstractDatastream $datastream, array 
     drupal_unlink($old_source);
   }
 
-  $ocr_file = islandora_ocr_create_ocr($source_file, $options);
-  $hocr_file = islandora_ocr_create_hocr($source_file, $options);
-  $ret = $ocr_file;
-  $ret = $ret && islandora_ocr_update_datastream($datastream->parent, $ocr_file, 'OCR');
-  $ret = $ret && $hocr_file;
-  $ret = $ret && islandora_ocr_update_datastream($datastream->parent, $hocr_file, 'HOCR');
-
-  $files = array_filter(array($source_file, $ocr_file, $hocr_file));
-  array_map('file_unmanaged_delete', $files);
-  return $ret;
+  return array(
+    'OCR' => islandora_ocr_create_ocr($source_file, $options),
+    'HOCR' => islandora_ocr_create_hocr($source_file, $options),
+  );
 }
 
 /**
@@ -191,7 +210,7 @@ function islandora_ocr_get_converted_source(AbstractDatastream $datastream) {
 
   $depth = intval(exec(escapeshellcmd("$identify -format \"%z\" $file")));
   $codec = strtolower(exec(escapeshellcmd("$identify -format \"%m\" $file")));
-
+  $alpha = exec(escapeshellcmd("$identify -format \"%A\" $file"));
   // XXX: Likely an incomplete list... Cursory search didn't turn up a full
   // list.
   $supported_codecs = array(
@@ -200,13 +219,14 @@ function islandora_ocr_get_converted_source(AbstractDatastream $datastream) {
     'png',
   );
 
-  if ($depth > 8 || !in_array($codec, $supported_codecs)) {
+  if ($depth > 8 || !in_array($codec, $supported_codecs) || $alpha == 'True') {
     $c_dest = file_create_filename(drupal_basename($source_file) . ".tif", 'temporary://');
 
     $c_args = array(
       '-colorspace Gray',
       '-depth 8',
       '-compress None',
+      '-alpha Off',
     );
 
     $old_source = $source_file;
@@ -395,13 +415,12 @@ function islandora_ocr_imagemagick_convert($src, $dest, $args) {
   $output = '';
   $ret = -1;
   if (_imagemagick_convert_exec($command, $output, $ret) !== TRUE) {
-    $message = 'ImageMagick failed to create a derivative.<br/>Error: @ret<br/>Command: @command<br/>Output: @output';
     $variables = array(
       '@ret' => $ret,
       '@command' => $command,
       '@output' => $output,
     );
-    watchdog('islandora_ocr', $message, $variables, WATCHDOG_ERROR);
+    watchdog('islandora_ocr', 'ImageMagick failed to create a derivative.<br/>Error: @ret<br/>Command: @command<br/>Output: @output', $variables, WATCHDOG_ERROR);
     return FALSE;
   }
   return $dest;
